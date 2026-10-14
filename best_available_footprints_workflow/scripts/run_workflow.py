@@ -56,7 +56,7 @@ def main() -> None:
     enable_logging(data_root / slug / LOG_FILENAME)
 
     prepare = [
-        sys.executable, str(SCRIPTS / "prepare_city.py"),
+        sys.executable, str(SCRIPTS / "0_prepare_city.py"),
         "--city-name", args.city_name, "--country", args.country,
         "--city-slug", slug, "--aoi", str(Path(args.aoi).resolve()),
         "--data-root", str(data_root),
@@ -73,7 +73,7 @@ def main() -> None:
 
     if not args.skip_overture:
         command = [
-            sys.executable, str(SCRIPTS / "download_overture.py"), "--city", slug,
+            sys.executable, str(SCRIPTS / "1_download_overture.py"), "--city", slug,
             "--data-root", str(data_root),
         ]
         if args.overture_cli:
@@ -84,7 +84,7 @@ def main() -> None:
 
     if not args.skip_3d_globfp:
         command = [
-            sys.executable, str(SCRIPTS / "download_3d_globfp.py"), "--city", slug,
+            sys.executable, str(SCRIPTS / "2_download_3d_globfp.py"), "--city", slug,
             "--data-root", str(data_root),
         ]
         if args.force:
@@ -92,7 +92,7 @@ def main() -> None:
         run(command)
 
     command = [
-        sys.executable, str(SCRIPTS / "build_integrated_footprints.py"), "--city", slug,
+        sys.executable, str(SCRIPTS / "3_build_integrated_footprints.py"), "--city", slug,
         "--data-root", str(data_root),
     ]
     if args.force:
@@ -101,7 +101,7 @@ def main() -> None:
 
     if not args.skip_raster_heights:
         command = [
-            sys.executable, str(SCRIPTS / "acquire_height_sources.py"), "--city", slug,
+            sys.executable, str(SCRIPTS / "4_acquire_height_sources.py"), "--city", slug,
             "--data-root", str(data_root),
         ]
         for enabled, flag in [
@@ -115,7 +115,7 @@ def main() -> None:
                 command.append(flag)
         run(command)
         run([
-            sys.executable, str(SCRIPTS / "enrich_raster_heights.py"), "--city", slug,
+            sys.executable, str(SCRIPTS / "5_enrich_raster_heights.py"), "--city", slug,
             "--data-root", str(data_root),
             "--google-presence-threshold", str(args.google_presence_threshold),
             "--tempo-density-threshold", str(args.tempo_density_threshold),
