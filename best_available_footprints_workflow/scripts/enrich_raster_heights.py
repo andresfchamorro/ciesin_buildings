@@ -249,6 +249,7 @@ def enrich(city: str, data_root: Path, google_presence: float, tempo_density: fl
     summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
     summary.update({
         "height_available": int(data.height_best_m.notna().sum()),
+        "review_required": int(data.review_required.sum()),
         "height_raster_enrichment": {
             "assignment": "raster value at footprint point-on-surface",
             "google_2_5d_2023_buildings": int(np.isfinite(google_height).sum()),
