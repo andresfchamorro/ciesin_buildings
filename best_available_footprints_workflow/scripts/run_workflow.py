@@ -16,6 +16,7 @@ WORKFLOW = SCRIPTS.parent
 
 
 def run(command: list[str]) -> None:
+    print(f"\n--- run_workflow.py: starting {Path(command[1]).name} ---")
     print("Running:", " ".join(command), flush=True)
     completed = subprocess.run(command, cwd=WORKFLOW)
     if completed.returncode:
@@ -120,7 +121,7 @@ def main() -> None:
             "--google-presence-threshold", str(args.google_presence_threshold),
             "--tempo-density-threshold", str(args.tempo_density_threshold),
         ])
-    print(f"Finished: {data_root / slug / 'outputs'}")
+    print(f"\n--- run_workflow.py: finished ---\nFinished: {data_root / slug / 'outputs'}")
 
 
 if __name__ == "__main__":
