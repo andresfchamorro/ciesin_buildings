@@ -15,9 +15,25 @@ SCRIPTS = Path(__file__).resolve().parent
 WORKFLOW = SCRIPTS.parent
 
 
+def format_command(command: list[str]) -> str:
+    """Render a command as one flag (plus its value, if any) per line."""
+    lines = [" ".join(command[:2])]
+    index = 2
+    while index < len(command):
+        token = command[index]
+        has_value = index + 1 < len(command) and not command[index + 1].startswith("--")
+        if has_value:
+            lines.append(f"{token} {command[index + 1]}")
+            index += 2
+        else:
+            lines.append(token)
+            index += 1
+    return " \\\n    ".join(lines)
+
+
 def run(command: list[str]) -> None:
     print(f"\n--- run_workflow.py: starting {Path(command[1]).name} ---")
-    print("Running:", " ".join(command), flush=True)
+    print(f"Running:\n    {format_command(command)}", flush=True)
     completed = subprocess.run(command, cwd=WORKFLOW)
     if completed.returncode:
         raise SystemExit(completed.returncode)
