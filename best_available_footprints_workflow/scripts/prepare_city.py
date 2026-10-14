@@ -11,7 +11,7 @@ import geopandas as gpd
 import numpy as np
 import shapely
 
-from city_workspace import add_data_root_arg, resolve_data_root, slugify
+from city_workspace import LOG_FILENAME, add_data_root_arg, enable_logging, resolve_data_root, slugify
 
 
 def read_vector(path: Path, layer: str | None = None) -> gpd.GeoDataFrame:
@@ -55,6 +55,7 @@ def prepare(args) -> Path:
     output = city_root / "outputs"
     for directory in (inputs, sources, output):
         directory.mkdir(parents=True, exist_ok=True)
+    enable_logging(city_root / LOG_FILENAME)
 
     aoi_source = polygonal(read_vector(Path(args.aoi), args.aoi_layer), "AOI")
     aoi_wgs84 = aoi_source.to_crs(4326).geometry.union_all()

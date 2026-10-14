@@ -189,9 +189,16 @@ Prepared inputs and downloaded source data are stored below
 │   ├── tempo_2023q4/            # only with --download-tempo
 │   ├── gba_height/
 │   └── height_sources.json
-└── outputs/
-    └── ...                      # see "What the workflow produces" above
+├── outputs/
+│   └── ...                      # see "What the workflow produces" above
+└── workflow.log
 ```
+
+Every script run for that city appends to `workflow.log` — stdout and Python-level
+stderr (prints, summaries, tracebacks) are mirrored to both the terminal and this
+file, with a timestamped banner marking where each run starts. Raw subprocess
+output (the `overturemaps` CLI's download progress, `curl` errors) is
+terminal-only and not captured in the log.
 
 Shared TEMPO and GBA indexes are cached once below `<data_root>/shared/`, so
 multiple cities under the same `--data-root` reuse them.

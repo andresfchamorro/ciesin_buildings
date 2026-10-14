@@ -6,12 +6,15 @@ import argparse
 import json
 import os
 import re
+import sys
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 DATA_ROOT_ENV_VAR = "BAFW_DATA_ROOT"
+LOG_FILENAME = "workflow.log"
 
 
 def slugify(value: str) -> str:
@@ -43,6 +46,7 @@ class CityPaths:
     inputs_dir: Path
     sources_dir: Path
     outputs_dir: Path
+    log_path: Path
     metadata: dict
 
 
@@ -62,8 +66,34 @@ def load_city(slug: str, data_root: Path) -> CityPaths:
         inputs_dir=city_dir / "inputs",
         sources_dir=city_dir / "sources",
         outputs_dir=city_dir / "outputs",
+        log_path=city_dir / LOG_FILENAME,
         metadata=metadata,
     )
+
+
+class _Tee:
+    """Writes to multiple streams, e.g. the real terminal and a log file."""
+
+    def __init__(self, *streams) -> None:
+        self._streams = streams
+
+    def write(self, data: str) -> None:
+        for stream in self._streams:
+            stream.write(data)
+
+    def flush(self) -> None:
+        for stream in self._streams:
+            stream.flush()
+
+
+def enable_logging(log_path: Path) -> None:
+    """Mirror stdout/stderr to log_path (appended) in addition to the terminal."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = log_path.open("a", buffering=1)
+    label = Path(sys.argv[0]).name
+    log_file.write(f"\n=== {label} :: {datetime.now(timezone.utc).isoformat()} ===\n")
+    sys.stdout = _Tee(sys.__stdout__, log_file)
+    sys.stderr = _Tee(sys.__stderr__, log_file)
 
 
 def skip_existing(path: Path, force: bool) -> bool:

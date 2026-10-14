@@ -17,7 +17,7 @@ import pandas as pd
 import shapely
 from matplotlib import pyplot as plt
 
-from city_workspace import add_data_root_arg, load_city, resolve_data_root, skip_existing
+from city_workspace import add_data_root_arg, enable_logging, load_city, resolve_data_root, skip_existing
 from footprint_overlap_resolution import resolve_overlaps_by_recency
 
 
@@ -356,6 +356,7 @@ def overview(data, city_name: str, path: Path) -> None:
 
 def build(city: str, data_root: Path, force: bool = False) -> None:
     paths = load_city(city, data_root)
+    enable_logging(paths.log_path)
     output = paths.outputs_dir
     output.mkdir(parents=True, exist_ok=True)
     parquet_path = output / "best_available_footprints.parquet"

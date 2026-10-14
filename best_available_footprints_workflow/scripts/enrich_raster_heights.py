@@ -19,7 +19,7 @@ from pyproj import Transformer
 from rasterio.enums import Resampling
 from rasterio.windows import Window, from_bounds
 
-from city_workspace import add_data_root_arg, load_city, resolve_data_root
+from city_workspace import add_data_root_arg, enable_logging, load_city, resolve_data_root
 
 
 VALID_MIN_HEIGHT_M = 0.5
@@ -179,6 +179,7 @@ def recompute_height_attributes(data: gpd.GeoDataFrame) -> None:
 
 def enrich(city: str, data_root: Path, google_presence: float, tempo_density: float) -> Path:
     paths = load_city(city, data_root)
+    enable_logging(paths.log_path)
     output = paths.outputs_dir
     parquet_path = output / "best_available_footprints.parquet"
     manifest_path = paths.sources_dir / "height_sources.json"

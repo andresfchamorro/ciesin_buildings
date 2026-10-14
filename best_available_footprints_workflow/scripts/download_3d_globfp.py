@@ -13,7 +13,7 @@ from pathlib import Path
 
 import requests
 
-from city_workspace import add_data_root_arg, load_city, resolve_data_root
+from city_workspace import add_data_root_arg, enable_logging, load_city, resolve_data_root
 
 
 FIGSHARE_ARTICLE_IDS = [
@@ -92,6 +92,7 @@ def main() -> None:
 
     data_root = resolve_data_root(args.data_root)
     city = load_city(args.city, data_root)
+    enable_logging(city.log_path)
     source_root = city.sources_dir
     download_root = source_root / "globfp_downloads"
     tile_root = source_root / "globfp_tiles"

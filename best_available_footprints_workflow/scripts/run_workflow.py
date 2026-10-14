@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from city_workspace import add_data_root_arg, resolve_data_root, slugify
+from city_workspace import LOG_FILENAME, add_data_root_arg, enable_logging, resolve_data_root, slugify
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -53,6 +53,7 @@ def main() -> None:
     args = parser.parse_args()
     slug = args.city_slug or slugify(args.city_name)
     data_root = resolve_data_root(args.data_root)
+    enable_logging(data_root / slug / LOG_FILENAME)
 
     prepare = [
         sys.executable, str(SCRIPTS / "prepare_city.py"),

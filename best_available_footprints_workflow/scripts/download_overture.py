@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from city_workspace import add_data_root_arg, load_city, resolve_data_root, skip_existing
+from city_workspace import add_data_root_arg, enable_logging, load_city, resolve_data_root, skip_existing
 
 
 WORKFLOW = Path(__file__).resolve().parents[1]
@@ -24,6 +24,7 @@ def main() -> None:
 
     data_root = resolve_data_root(args.data_root)
     city = load_city(args.city, data_root)
+    enable_logging(city.log_path)
     output = city.sources_dir / "overture_buildings.parquet"
     output.parent.mkdir(parents=True, exist_ok=True)
     if skip_existing(output, args.force):

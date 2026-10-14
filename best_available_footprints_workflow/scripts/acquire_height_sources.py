@@ -26,7 +26,7 @@ import requests
 import shapely
 from s2sphere import LatLng, LatLngRect, RegionCoverer
 
-from city_workspace import add_data_root_arg, load_city, resolve_data_root
+from city_workspace import add_data_root_arg, enable_logging, load_city, resolve_data_root
 
 
 GOOGLE_MANIFEST_ROOT = (
@@ -275,6 +275,7 @@ def main() -> None:
 
     data_root = resolve_data_root(args.data_root)
     city = load_city(args.city, data_root)
+    enable_logging(city.log_path)
     aoi_wgs84 = gpd.read_parquet(city.inputs_dir / "aoi.parquet").to_crs(4326).geometry.union_all()
     result = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
