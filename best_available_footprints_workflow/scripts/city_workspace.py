@@ -91,7 +91,7 @@ def enable_logging(log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("a", buffering=1)
     label = Path(sys.argv[0]).name
-    log_file.write(f"\n=== {label} :: {datetime.now(timezone.utc).isoformat()} ===\n")
+    log_file.write(f"\n=== {label} :: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')} ===\n")
     sys.stdout = _Tee(sys.__stdout__, log_file)
     sys.stderr = _Tee(sys.__stderr__, log_file)
 
