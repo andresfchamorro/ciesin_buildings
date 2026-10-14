@@ -4,3 +4,5 @@ best_available_footprints_workflow/data/
 best_available_footprints_workflow/outputs/
 **/__pycache__/
 *.pyc
+*.vscode
+best_available_footprints_workflow/commands.txt
