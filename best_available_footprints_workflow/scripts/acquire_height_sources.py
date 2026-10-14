@@ -26,8 +26,9 @@ import requests
 import shapely
 from s2sphere import LatLng, LatLngRect, RegionCoverer
 
+from city_workspace import add_data_root_arg, load_city, resolve_data_root
 
-WORKFLOW = Path(__file__).resolve().parents[1]
+
 GOOGLE_MANIFEST_ROOT = (
     "https://storage.googleapis.com/open-buildings-temporal-data/v1/manifests"
 )
@@ -110,9 +111,10 @@ def acquire_google(
 
 
 def acquire_tempo(
-    session: requests.Session, city_root: Path, aoi_wgs84, force: bool, download_cogs: bool
+    session: requests.Session, city_root: Path, aoi_wgs84, force: bool, download_cogs: bool,
+    data_root: Path,
 ) -> list[dict]:
-    index_path = WORKFLOW / "data/shared/tempo/tile_index.gpkg"
+    index_path = data_root / "shared/tempo/tile_index.gpkg"
     download_http(session, TEMPO_INDEX_URL, index_path, force)
     index = gpd.read_file(index_path)
     aoi = gpd.GeoSeries([aoi_wgs84], crs=4326).to_crs(index.crs).iloc[0]
@@ -140,8 +142,8 @@ def acquire_tempo(
     return records
 
 
-def download_gba_indexes(force: bool) -> tuple[Path, Path]:
-    directory = WORKFLOW / "data/shared/gba_height/index"
+def download_gba_indexes(force: bool, data_root: Path) -> tuple[Path, Path]:
+    directory = data_root / "shared/gba_height/index"
     directory.mkdir(parents=True, exist_ok=True)
     for filename, expected in GBA_INDEX_FILES.items():
         path = directory / filename
@@ -213,8 +215,8 @@ def extract_member(url: str, info: zipfile.ZipInfo, output: Path) -> None:
             path.unlink(missing_ok=True)
 
 
-def acquire_gba(city_root: Path, aoi_wgs84, force: bool) -> list[dict]:
-    fine_path, archive_path = download_gba_indexes(force=force)
+def acquire_gba(city_root: Path, aoi_wgs84, force: bool, data_root: Path) -> list[dict]:
+    fine_path, archive_path = download_gba_indexes(force=force, data_root=data_root)
     index = gpd.read_file(fine_path)
     aoi = gpd.GeoSeries([aoi_wgs84], crs=4326).to_crs(index.crs).iloc[0]
     selected = index.iloc[index.sindex.query(aoi, predicate="intersects")].copy()
@@ -268,11 +270,12 @@ def main() -> None:
     parser.add_argument("--skip-google", action="store_true")
     parser.add_argument("--skip-tempo", action="store_true")
     parser.add_argument("--skip-gba", action="store_true")
+    add_data_root_arg(parser)
     args = parser.parse_args()
 
-    city_root = WORKFLOW / "data" / args.city
-    metadata = json.loads((city_root / "inputs/metadata.json").read_text())
-    aoi_wgs84 = gpd.read_parquet(city_root / "inputs/aoi.parquet").to_crs(4326).geometry.union_all()
+    data_root = resolve_data_root(args.data_root)
+    city = load_city(args.city, data_root)
+    aoi_wgs84 = gpd.read_parquet(city.inputs_dir / "aoi.parquet").to_crs(4326).geometry.union_all()
     result = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "city_slug": args.city,
@@ -286,14 +289,14 @@ def main() -> None:
     with requests.Session() as session:
         session.headers["User-Agent"] = "best-available-footprints-workflow/2.0"
         if not args.skip_google:
-            result["google_2_5d"] = acquire_google(session, city_root, metadata, args.force)
+            result["google_2_5d"] = acquire_google(session, city.city_dir, city.metadata, args.force)
         if not args.skip_tempo:
             result["tempo"] = acquire_tempo(
-                session, city_root, aoi_wgs84, args.force, args.download_tempo
+                session, city.city_dir, aoi_wgs84, args.force, args.download_tempo, data_root
             )
     if not args.skip_gba:
-        result["gba_height"] = acquire_gba(city_root, aoi_wgs84, args.force)
-    manifest = city_root / "sources/height_sources.json"
+        result["gba_height"] = acquire_gba(city.city_dir, aoi_wgs84, args.force, data_root)
+    manifest = city.sources_dir / "height_sources.json"
     manifest.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({key: len(result[key]) for key in ("google_2_5d", "tempo", "gba_height")}, indent=2))
     print(f"Wrote: {manifest}")

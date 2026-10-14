@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import subprocess
 from pathlib import Path
+
+from city_workspace import add_data_root_arg, load_city, resolve_data_root, skip_existing
 
 
 WORKFLOW = Path(__file__).resolve().parents[1]
@@ -18,14 +19,14 @@ def main() -> None:
     parser.add_argument("--city", required=True, help="Prepared city slug")
     parser.add_argument("--overture-cli", help="Path to the overturemaps executable")
     parser.add_argument("--force", action="store_true")
+    add_data_root_arg(parser)
     args = parser.parse_args()
 
-    city_root = WORKFLOW / "data" / args.city
-    metadata = json.loads((city_root / "inputs/metadata.json").read_text())
-    output = city_root / "sources/overture_buildings.parquet"
+    data_root = resolve_data_root(args.data_root)
+    city = load_city(args.city, data_root)
+    output = city.sources_dir / "overture_buildings.parquet"
     output.parent.mkdir(parents=True, exist_ok=True)
-    if output.exists() and not args.force:
-        print(f"Existing: {output}")
+    if skip_existing(output, args.force):
         return
     cli = args.overture_cli or shutil.which("overturemaps")
     if not cli:
@@ -39,7 +40,7 @@ def main() -> None:
     partial = output.with_name("overture_buildings.partial.parquet")
     if partial.exists():
         partial.unlink()
-    bbox = ",".join(str(value) for value in metadata["bbox_wgs84"])
+    bbox = ",".join(str(value) for value in city.metadata["bbox_wgs84"])
     command = [
         cli, "download", "--bbox", bbox, "-f", "geoparquet",
         "--type", "building", "-o", str(partial),

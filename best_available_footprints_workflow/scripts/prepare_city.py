@@ -5,21 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-import unicodedata
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import shapely
 
-
-WORKFLOW = Path(__file__).resolve().parents[1]
-
-
-def slugify(value: str) -> str:
-    text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_").lower()
+from city_workspace import add_data_root_arg, resolve_data_root, slugify
 
 
 def read_vector(path: Path, layer: str | None = None) -> gpd.GeoDataFrame:
@@ -56,10 +48,11 @@ def prepare(args) -> Path:
     slug = args.city_slug or slugify(args.city_name)
     if not slug:
         raise ValueError("City slug is empty")
-    city_root = WORKFLOW / "data" / slug
+    data_root = resolve_data_root(args.data_root)
+    city_root = data_root / slug
     inputs = city_root / "inputs"
     sources = city_root / "sources"
-    output = WORKFLOW / "outputs" / slug
+    output = city_root / "outputs"
     for directory in (inputs, sources, output):
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -101,6 +94,7 @@ def prepare(args) -> Path:
         "city_slug": slug,
         "city_name": args.city_name,
         "country": args.country,
+        "data_root": str(data_root),
         "analysis_crs": str(aoi_projected.crs),
         "aoi_area_km2": float(aoi_geometry.area / 1e6),
         "bbox_wgs84": list(map(float, aoi_projected.to_crs(4326).total_bounds)),
@@ -124,6 +118,7 @@ def main() -> None:
     parser.add_argument("--segments")
     parser.add_argument("--segments-layer")
     parser.add_argument("--analysis-crs", help="Projected CRS, for example EPSG:32636")
+    add_data_root_arg(parser)
     prepare(parser.parse_args())
 
 

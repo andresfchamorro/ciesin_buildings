@@ -22,10 +22,12 @@ Source documentation:
 
 ## What the workflow produces
 
-For a city slug such as `example_city`, outputs are written to:
+For a city slug such as `example_city`, outputs are written to
+`<data_root>/example_city/outputs/` (see [Data location](#data-location) for how
+`<data_root>` is chosen):
 
 ```text
-outputs/example_city/
+<data_root>/example_city/outputs/
 ├── best_available_footprints.parquet
 ├── best_available_footprints.gpkg
 ├── footprint_lineage.parquet
@@ -90,6 +92,16 @@ acquisition script; environment credentials are not required. They can be
 overridden with `GBA_FTP_USER`, `GBA_FTP_PASSWORD`, `GBA_REP_FTP_USER`, and
 `GBA_REP_FTP_PASSWORD` when necessary.
 
+## Data location
+
+Every script needs a data root — a directory outside the repo that holds all
+prepared-city data and outputs. There is no implicit default, so you must set
+one explicitly: pass `--data-root /path/to/storage` on each command, or export
+`BAFW_DATA_ROOT=/path/to/storage` once per shell session so it doesn't need to
+be repeated (an explicit `--data-root` always overrides the environment
+variable). Omitting both produces a clear error rather than silently writing
+into the repo checkout.
+
 ## Required input
 
 Supply one polygon AOI readable by GeoPandas, for example GeoJSON, GeoPackage,
@@ -106,7 +118,8 @@ they do not control building selection.
 .venv/bin/python scripts/run_workflow.py \
   --city-name "Example City" \
   --country "Example Country" \
-  --aoi /absolute/path/to/example_city_aoi.geojson
+  --aoi /absolute/path/to/example_city_aoi.geojson \
+  --data-root /absolute/path/to/storage
 ```
 
 With optional reporting segments:
@@ -118,7 +131,8 @@ With optional reporting segments:
   --aoi /absolute/path/to/example_city_aoi.gpkg \
   --aoi-layer city_boundary \
   --segments /absolute/path/to/reporting_units.gpkg \
-  --segments-layer reporting_units
+  --segments-layer reporting_units \
+  --data-root /absolute/path/to/storage
 ```
 
 Use `--city-slug` to override the automatically generated slug, `--analysis-crs`
@@ -134,9 +148,12 @@ runner.
 
 ## Step-by-step run
 
-The same workflow can be run in stages:
+The same workflow can be run in stages. `--data-root` must be repeated on every
+command (or set once as `BAFW_DATA_ROOT` for the session):
 
 ```bash
+export BAFW_DATA_ROOT=/absolute/path/to/storage
+
 .venv/bin/python scripts/prepare_city.py \
   --city-name "Example City" --country "Example Country" \
   --aoi /absolute/path/to/aoi.geojson
@@ -152,28 +169,32 @@ Each command supports `--help`.
 
 ## Intermediate data
 
-Prepared inputs and downloaded source data are stored below `data/<city_slug>/`:
+Prepared inputs and downloaded source data are stored below
+`<data_root>/<city_slug>/`:
 
 ```text
-data/example_city/
+<data_root>/example_city/
 ├── inputs/
 │   ├── aoi.parquet
 │   ├── aoi.geojson
 │   ├── segments.parquet
 │   └── metadata.json
-└── sources/
-    ├── overture_buildings.parquet
-    ├── overture_clipped.parquet
-    ├── globfp_tiles.json
-    ├── globfp_tiles/
-    ├── globfp3d_clipped.parquet
-    ├── google_2_5d/manifests/
-    ├── tempo_2023q4/            # only with --download-tempo
-    ├── gba_height/
-    └── height_sources.json
+├── sources/
+│   ├── overture_buildings.parquet
+│   ├── overture_clipped.parquet
+│   ├── globfp_tiles.json
+│   ├── globfp_tiles/
+│   ├── globfp3d_clipped.parquet
+│   ├── google_2_5d/manifests/
+│   ├── tempo_2023q4/            # only with --download-tempo
+│   ├── gba_height/
+│   └── height_sources.json
+└── outputs/
+    └── ...                      # see "What the workflow produces" above
 ```
 
-Shared TEMPO and GBA indexes are cached once below `data/shared/`.
+Shared TEMPO and GBA indexes are cached once below `<data_root>/shared/`, so
+multiple cities under the same `--data-root` reuse them.
 
 ## Raster-height assignment
 

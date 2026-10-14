@@ -19,8 +19,9 @@ from pyproj import Transformer
 from rasterio.enums import Resampling
 from rasterio.windows import Window, from_bounds
 
+from city_workspace import add_data_root_arg, load_city, resolve_data_root
 
-WORKFLOW = Path(__file__).resolve().parents[1]
+
 VALID_MIN_HEIGHT_M = 0.5
 VALID_MAX_HEIGHT_M = 100.0
 
@@ -176,11 +177,11 @@ def recompute_height_attributes(data: gpd.GeoDataFrame) -> None:
     )
 
 
-def enrich(city: str, google_presence: float, tempo_density: float) -> Path:
-    city_root = WORKFLOW / "data" / city
-    output = WORKFLOW / "outputs" / city
+def enrich(city: str, data_root: Path, google_presence: float, tempo_density: float) -> Path:
+    paths = load_city(city, data_root)
+    output = paths.outputs_dir
     parquet_path = output / "best_available_footprints.parquet"
-    manifest_path = city_root / "sources/height_sources.json"
+    manifest_path = paths.sources_dir / "height_sources.json"
     if not parquet_path.exists():
         raise FileNotFoundError(f"Build integrated footprints first: {parquet_path}")
     if not manifest_path.exists():
@@ -302,12 +303,16 @@ def main() -> None:
         "--tempo-density-threshold", type=float, default=0.001,
         help="Minimum TEMPO building-density value required for its height",
     )
+    add_data_root_arg(parser)
     args = parser.parse_args()
     if not 0 <= args.google_presence_threshold <= 1:
         raise ValueError("Google presence threshold must be between 0 and 1")
     if not 0 <= args.tempo_density_threshold <= 1:
         raise ValueError("TEMPO density threshold must be between 0 and 1")
-    path = enrich(args.city, args.google_presence_threshold, args.tempo_density_threshold)
+    data_root = resolve_data_root(args.data_root)
+    path = enrich(
+        args.city, data_root, args.google_presence_threshold, args.tempo_density_threshold
+    )
     print(f"Updated: {path}")
 
 

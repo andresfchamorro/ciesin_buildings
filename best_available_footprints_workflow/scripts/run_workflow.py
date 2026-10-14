@@ -4,20 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
-import unicodedata
 from pathlib import Path
+
+from city_workspace import add_data_root_arg, resolve_data_root, slugify
 
 
 SCRIPTS = Path(__file__).resolve().parent
 WORKFLOW = SCRIPTS.parent
-
-
-def slugify(value: str) -> str:
-    text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_").lower()
 
 
 def run(command: list[str]) -> None:
@@ -54,13 +49,16 @@ def main() -> None:
     parser.add_argument("--google-presence-threshold", type=float, default=0.5)
     parser.add_argument("--tempo-density-threshold", type=float, default=0.001)
     parser.add_argument("--force", action="store_true")
+    add_data_root_arg(parser)
     args = parser.parse_args()
     slug = args.city_slug or slugify(args.city_name)
+    data_root = resolve_data_root(args.data_root)
 
     prepare = [
         sys.executable, str(SCRIPTS / "prepare_city.py"),
         "--city-name", args.city_name, "--country", args.country,
         "--city-slug", slug, "--aoi", str(Path(args.aoi).resolve()),
+        "--data-root", str(data_root),
     ]
     for flag, value in [
         ("--aoi-layer", args.aoi_layer),
@@ -73,7 +71,10 @@ def main() -> None:
     run(prepare)
 
     if not args.skip_overture:
-        command = [sys.executable, str(SCRIPTS / "download_overture.py"), "--city", slug]
+        command = [
+            sys.executable, str(SCRIPTS / "download_overture.py"), "--city", slug,
+            "--data-root", str(data_root),
+        ]
         if args.overture_cli:
             command.extend(["--overture-cli", args.overture_cli])
         if args.force:
@@ -81,12 +82,18 @@ def main() -> None:
         run(command)
 
     if not args.skip_3d_globfp:
-        command = [sys.executable, str(SCRIPTS / "download_3d_globfp.py"), "--city", slug]
+        command = [
+            sys.executable, str(SCRIPTS / "download_3d_globfp.py"), "--city", slug,
+            "--data-root", str(data_root),
+        ]
         if args.force:
             command.append("--force")
         run(command)
 
-    command = [sys.executable, str(SCRIPTS / "build_integrated_footprints.py"), "--city", slug]
+    command = [
+        sys.executable, str(SCRIPTS / "build_integrated_footprints.py"), "--city", slug,
+        "--data-root", str(data_root),
+    ]
     if args.force:
         command.append("--force")
     run(command)
@@ -94,6 +101,7 @@ def main() -> None:
     if not args.skip_raster_heights:
         command = [
             sys.executable, str(SCRIPTS / "acquire_height_sources.py"), "--city", slug,
+            "--data-root", str(data_root),
         ]
         for enabled, flag in [
             (args.skip_google_height, "--skip-google"),
@@ -107,10 +115,11 @@ def main() -> None:
         run(command)
         run([
             sys.executable, str(SCRIPTS / "enrich_raster_heights.py"), "--city", slug,
+            "--data-root", str(data_root),
             "--google-presence-threshold", str(args.google_presence_threshold),
             "--tempo-density-threshold", str(args.tempo_density_threshold),
         ])
-    print(f"Finished: {WORKFLOW / 'outputs' / slug}")
+    print(f"Finished: {data_root / slug / 'outputs'}")
 
 
 if __name__ == "__main__":

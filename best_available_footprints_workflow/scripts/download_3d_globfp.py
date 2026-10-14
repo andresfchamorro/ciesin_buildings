@@ -13,8 +13,9 @@ from pathlib import Path
 
 import requests
 
+from city_workspace import add_data_root_arg, load_city, resolve_data_root
 
-WORKFLOW = Path(__file__).resolve().parents[1]
+
 FIGSHARE_ARTICLE_IDS = [
     28879733, 28881749, 28882700, 28889813, 28890593,
     28891631, 28903454, 28903853, 28904453, 28906499,
@@ -86,11 +87,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--city", required=True, help="Prepared city slug")
     parser.add_argument("--force", action="store_true")
+    add_data_root_arg(parser)
     args = parser.parse_args()
 
-    city_root = WORKFLOW / "data" / args.city
-    metadata = json.loads((city_root / "inputs/metadata.json").read_text())
-    source_root = city_root / "sources"
+    data_root = resolve_data_root(args.data_root)
+    city = load_city(args.city, data_root)
+    source_root = city.sources_dir
     download_root = source_root / "globfp_downloads"
     tile_root = source_root / "globfp_tiles"
     for directory in (download_root, tile_root):
@@ -100,7 +102,7 @@ def main() -> None:
         session.headers["User-Agent"] = "best-available-footprints-workflow/1.0"
         selected = [
             record for record in catalog(session)
-            if intersects(record["bounds_wgs84"], metadata["bbox_wgs84"])
+            if intersects(record["bounds_wgs84"], city.metadata["bbox_wgs84"])
         ]
         if not selected:
             raise RuntimeError("No 3D-GloBFP tiles intersect the AOI")

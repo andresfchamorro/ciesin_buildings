@@ -1,1 +1,6 @@
 .DS_Store
+best_available_footprints_workflow/.venv/
+best_available_footprints_workflow/data/
+best_available_footprints_workflow/outputs/
+**/__pycache__/
+*.pyc

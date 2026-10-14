@@ -17,11 +17,11 @@ import pandas as pd
 import shapely
 from matplotlib import pyplot as plt
 
+from city_workspace import add_data_root_arg, load_city, resolve_data_root, skip_existing
 from footprint_overlap_resolution import resolve_overlaps_by_recency
 
 
 matplotlib.use("Agg")
-WORKFLOW = Path(__file__).resolve().parents[1]
 MIN_AREA_M2 = 4.0
 OVERLAP_TOLERANCE_M2 = 0.01
 OVERLAP_SMALLER_FRACTION = 0.20
@@ -354,20 +354,19 @@ def overview(data, city_name: str, path: Path) -> None:
     plt.close(fig)
 
 
-def build(city: str, force: bool = False) -> None:
-    city_root = WORKFLOW / "data" / city
-    output = WORKFLOW / "outputs" / city
+def build(city: str, data_root: Path, force: bool = False) -> None:
+    paths = load_city(city, data_root)
+    output = paths.outputs_dir
     output.mkdir(parents=True, exist_ok=True)
     parquet_path = output / "best_available_footprints.parquet"
-    if parquet_path.exists() and not force:
-        print(f"Existing: {parquet_path}")
+    if skip_existing(parquet_path, force):
         return
-    metadata = json.loads((city_root / "inputs/metadata.json").read_text())
+    metadata = paths.metadata
     crs = metadata["analysis_crs"]
-    aoi = gpd.read_parquet(city_root / "inputs/aoi.parquet").to_crs(crs).geometry.union_all()
-    segments = gpd.read_parquet(city_root / "inputs/segments.parquet").to_crs(crs)
-    overture = load_overture(city_root, crs, aoi)
-    globfp = load_globfp(city_root, crs, aoi, metadata["bbox_wgs84"])
+    aoi = gpd.read_parquet(paths.inputs_dir / "aoi.parquet").to_crs(crs).geometry.union_all()
+    segments = gpd.read_parquet(paths.inputs_dir / "segments.parquet").to_crs(crs)
+    overture = load_overture(paths.city_dir, crs, aoi)
+    globfp = load_globfp(paths.city_dir, crs, aoi, metadata["bbox_wgs84"])
     overture_selected = overture_candidates(overture, city)
     globfp_selected = globfp_candidates(globfp, city)
     provisional = gpd.GeoDataFrame(
@@ -428,8 +427,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--city", required=True, help="Prepared city slug")
     parser.add_argument("--force", action="store_true")
+    add_data_root_arg(parser)
     args = parser.parse_args()
-    build(args.city, args.force)
+    data_root = resolve_data_root(args.data_root)
+    build(args.city, data_root, args.force)
 
 
 if __name__ == "__main__":
