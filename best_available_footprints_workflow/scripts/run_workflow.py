@@ -15,9 +15,17 @@ SCRIPTS = Path(__file__).resolve().parent
 WORKFLOW = SCRIPTS.parent
 
 
+def display_path(value: str) -> str:
+    """Shorten a path under WORKFLOW to a ./-relative form for display."""
+    try:
+        return f"./{Path(value).relative_to(WORKFLOW)}"
+    except ValueError:
+        return value
+
+
 def format_command(command: list[str]) -> str:
     """Render a command as one flag (plus its value, if any) per line."""
-    lines = [" ".join(command[:2])]
+    lines = [" ".join(display_path(token) for token in command[:2])]
     index = 2
     while index < len(command):
         token = command[index]
@@ -32,8 +40,8 @@ def format_command(command: list[str]) -> str:
 
 
 def run(command: list[str]) -> None:
-    print(f"\n--- run_workflow.py: starting {Path(command[1]).name} ---")
-    print(f"Running:\n    {format_command(command)}", flush=True)
+    # print(f"\n--- run_workflow.py: starting {Path(command[1]).name} ---")
+    print(f"\nRunning:\n    {format_command(command)}", flush=True)
     completed = subprocess.run(command, cwd=WORKFLOW)
     if completed.returncode:
         raise SystemExit(completed.returncode)
