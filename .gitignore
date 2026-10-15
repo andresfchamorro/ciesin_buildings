@@ -6,3 +6,5 @@ best_available_footprints_workflow/outputs/
 *.pyc
 *.vscode
 best_available_footprints_workflow/commands.txt
+best_available_footprints_workflow/scripts/debug.ipynb
+best_available_footprints_workflow/ciesin_buildings.code-workspace

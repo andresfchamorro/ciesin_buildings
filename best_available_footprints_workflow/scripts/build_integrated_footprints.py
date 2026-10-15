@@ -22,15 +22,21 @@ from footprint_overlap_resolution import resolve_overlaps_by_recency
 
 
 matplotlib.use("Agg")
-MIN_AREA_M2 = 4.0
-OVERLAP_TOLERANCE_M2 = 0.01
-OVERLAP_SMALLER_FRACTION = 0.20
-GLOBFP_DATE = pd.Timestamp("2020-01-01", tz="UTC")
+MIN_AREA_M2 = 4.0  # candidate polygons smaller than this are dropped before selection
+OVERLAP_TOLERANCE_M2 = 0.01  # below this, an intersection is a boundary-touch/sliver, not a real conflict
+OVERLAP_SMALLER_FRACTION = 0.20  # intersection must cover >= 20% of the smaller footprint to count as a conflict
+GLOBFP_DATE = pd.Timestamp("2020-01-01", tz="UTC")  # 3D-GloBFP's documented model vintage; it has no per-feature date
 RECENCY_TIEBREAK = {
+    # Used only when two candidates share the same footprint_date (or both lack one):
+    # higher priority wins. Does not affect selection when dates differ.
     "OpenStreetMap": 3,
     "Overture_nonOSM": 2,
     "3D-GloBFP_gapfill": 1,
 }
+
+
+# --- Overture's "sources" column is a list of per-source-record dicts (provider,
+# dataset, update_time, record_id, ...); these three helpers pull out what we need. ---
 
 
 def source_list(value) -> list[dict]:
@@ -45,6 +51,8 @@ def first_source(value, key, default=None):
 
 
 def latest_update(value):
+    # A feature's date is the LATEST update_time across all of its attached source
+    # records (e.g. an OSM way edited by multiple changesets), not the first one.
     records = source_list(value)
     times = pd.to_datetime(
         [record.get("update_time") for record in records], errors="coerce", utc=True
@@ -53,6 +61,8 @@ def latest_update(value):
 
 
 def clean(data: gpd.GeoDataFrame, crs) -> gpd.GeoDataFrame:
+    # Reproject, drop null/empty/invalid-after-repair geometry, keep only
+    # Polygon/MultiPolygon (type ids 3/6), and drop anything under MIN_AREA_M2.
     if data.crs is None:
         raise ValueError("Source data has no CRS")
     data = data.to_crs(crs).copy()
@@ -68,8 +78,14 @@ def clean(data: gpd.GeoDataFrame, crs) -> gpd.GeoDataFrame:
 
 
 def within_aoi(data: gpd.GeoDataFrame, aoi) -> gpd.GeoDataFrame:
+    # Keep a feature if its point-on-surface falls inside the AOI, not if it merely
+    # intersects the boundary. Whole buildings are kept (never clipped), even ones
+    # that straddle the AOI edge, as long as their interior point is inside.
     points = shapely.point_on_surface(data.geometry.to_numpy())
     return data.loc[shapely.within(points, aoi)].reset_index(drop=True)
+
+
+# --- Step 1: load + clean each raw source, independently, into a common shape. ---
 
 
 def load_overture(city_root: Path, crs, aoi) -> gpd.GeoDataFrame:
@@ -90,6 +106,8 @@ def load_overture(city_root: Path, crs, aoi) -> gpd.GeoDataFrame:
 
 
 def load_globfp(city_root: Path, crs, aoi, bbox_wgs84) -> gpd.GeoDataFrame:
+    # One tile can cover a much larger area than the AOI, so each shapefile read is
+    # pre-filtered to the AOI's WGS84 bbox (the tiles' native CRS) before reprojecting.
     manifest = json.loads((city_root / "sources/globfp_tiles.json").read_text())
     pieces = []
     for record in manifest:
@@ -123,6 +141,11 @@ def load_globfp(city_root: Path, crs, aoi, bbox_wgs84) -> gpd.GeoDataFrame:
     return data
 
 
+# --- Step 2: turn each cleaned source into "candidate" records on a common schema
+# (integrated_id, geometry_source, footprint_date, recency_tiebreak_priority, ...)
+# so Overture and 3D-GloBFP features can be pooled and compared directly. ---
+
+
 def overture_candidates(data, slug: str) -> gpd.GeoDataFrame:
     source = np.where(data.provider.astype(str).str.lower().eq("osm"), "OpenStreetMap", "Overture_nonOSM")
     result = gpd.GeoDataFrame({
@@ -152,6 +175,9 @@ def overture_candidates(data, slug: str) -> gpd.GeoDataFrame:
 
 
 def globfp_candidates(data, slug: str) -> gpd.GeoDataFrame:
+    # 3D-GloBFP always gets the lowest recency_tiebreak_priority (see RECENCY_TIEBREAK),
+    # so in practice it only "wins" a spot where no Overture feature overlaps it
+    # enough to conflict -- i.e. it fills gaps rather than displacing OSM/Overture.
     result = gpd.GeoDataFrame({
         "integrated_id": [f"{slug}-GLO-{i:08d}" for i in range(1, len(data) + 1)],
         "geometry_source": "3D-GloBFP_gapfill",
@@ -174,6 +200,12 @@ def globfp_candidates(data, slug: str) -> gpd.GeoDataFrame:
     return result
 
 
+# --- Step 4: does an independent 3D-GloBFP footprint corroborate each surviving
+# feature? This is a CONFIDENCE signal only -- it never changes which geometry was
+# selected in step 3, and it uses its own (stricter) 35% threshold, not the 20%
+# OVERLAP_SMALLER_FRACTION used for conflict resolution. ---
+
+
 def globfp_support(integrated, globfp) -> tuple[np.ndarray, pd.DataFrame]:
     supported = np.zeros(len(integrated), dtype=bool)
     if integrated.empty or globfp.empty:
@@ -191,6 +223,8 @@ def globfp_support(integrated, globfp) -> tuple[np.ndarray, pd.DataFrame]:
     smaller = np.minimum(
         integrated.area_m2.to_numpy()[left], globfp.area_m2.to_numpy()[right]
     )
+    # Support threshold: >=1 m^2 AND >=35% of the smaller footprint (independent of
+    # the 20%/OVERLAP_SMALLER_FRACTION conflict threshold used in overlap resolution).
     keep = (intersection >= 1.0) & (intersection / np.maximum(smaller, 1e-9) >= 0.35)
     supported[np.unique(left[keep])] = True
     return supported, pd.DataFrame({
@@ -200,6 +234,8 @@ def globfp_support(integrated, globfp) -> tuple[np.ndarray, pd.DataFrame]:
 
 
 def attach_globfp_height(integrated, globfp) -> None:
+    # Joins each feature's point-on-surface to whichever 3D-GloBFP polygon contains
+    # it (sorted by area so the smallest/most-specific containing polygon wins ties).
     integrated["height_globfp_vector_m"] = np.nan
     integrated["globfp_height_id"] = None
     if integrated.empty or globfp.empty:
@@ -217,21 +253,27 @@ def attach_globfp_height(integrated, globfp) -> None:
     integrated.loc[joined.index, "globfp_height_id"] = joined.globfp_id
 
 
+# --- Step 5: pre-raster height. height_best_m takes the first valid value in this
+# priority order: native Overture height, OSM floor count x 3m, 3D-GloBFP vector
+# height. 5_enrich_raster_heights.py later extends this same priority list with
+# Google 2.5D / GBA.Height / TEMPO and recomputes these fields from scratch. ---
+
+
 def height_attributes(data) -> None:
     direct = pd.to_numeric(data.native_height_m, errors="coerce").to_numpy(dtype="float64")
     floors = pd.to_numeric(data.native_floors, errors="coerce").to_numpy(dtype="float64")
-    floor_height = np.where((floors > 0) & (floors <= 40), floors * 3.0, np.nan)
+    floor_height = np.where((floors > 0) & (floors <= 40), floors * 3.0, np.nan)  # cap: implausible floor counts are ignored
     globfp = pd.to_numeric(data.height_globfp_vector_m, errors="coerce").to_numpy(dtype="float64")
     data["height_floors_estimate_m"] = floor_height
     best = np.full(len(data), np.nan)
     source = np.full(len(data), None, dtype=object)
     stack = []
     for name, values in [
-        ("native_geometry", direct),
-        ("OSM_levels_x_3m", floor_height),
-        ("3D-GloBFP_vector", globfp),
+        ("native_geometry", direct),       # priority 1: Overture's own height attribute
+        ("OSM_levels_x_3m", floor_height),  # priority 2: OSM num_floors * 3m
+        ("3D-GloBFP_vector", globfp),       # priority 3: 3D-GloBFP's vector height
     ]:
-        valid = np.isfinite(values) & (values >= 0.5) & (values <= 100)
+        valid = np.isfinite(values) & (values >= 0.5) & (values <= 100)  # plausible-building-height bounds
         stack.append(np.where(valid, values, np.nan))
         take = np.isnan(best) & valid
         best[take], source[take] = values[take], name
@@ -252,6 +294,9 @@ def height_attributes(data) -> None:
 
 
 def assign_segments(data, segments) -> None:
+    # Attaches reporting-segment identifiers (ANALYSIS_ID/SEGMENT_UID) by point-on-
+    # surface, for attribution/summaries only -- segments never affect which
+    # geometry gets selected.
     points = gpd.GeoDataFrame(
         {"row_index": np.arange(len(data), dtype="int64")},
         geometry=shapely.point_on_surface(data.geometry.to_numpy()), crs=data.crs,
@@ -265,8 +310,15 @@ def assign_segments(data, segments) -> None:
     data["SEGMENT_UID"] = joined.SEGMENT_UID.reindex(range(len(data))).to_numpy()
 
 
+# --- Step 6: geometry_confidence/selection_reason/review_required -- a plain-
+# English explanation of why each geometry was trusted, and a flag for which
+# features a human should double-check. ---
+
+
 def confidence_attributes(data) -> None:
     osm = data.geometry_source.eq("OpenStreetMap")
+    # OSM record_ids look like "w1484281873@1" -- the trailing "@N" is the edit
+    # version; >=2 means the feature has been revised at least once.
     data["osm_version"] = pd.to_numeric(
         data.source_record_id.astype("string").str.extract(r"@(\d+)$")[0], errors="coerce"
     ).astype("Int32")
@@ -289,10 +341,17 @@ def confidence_attributes(data) -> None:
         "OSM_selected_3D_supported", "OSM_selected_multiple_versions",
         "OSM_selected", "Overture_selected_3D_supported", "Overture_selected",
     ], default="3D-GloBFP_selected")
+    # Flag for manual review: low-confidence geometry, OR two-plus independent
+    # height estimates that disagree by more than 5 m.
     data["review_required"] = (
         data.geometry_confidence.eq("low")
         | ((data.height_source_count >= 2) & (data.height_range_m > 5))
     )
+
+
+# --- Step 7: audit trail. One row per surviving feature (role=selected_geometry)
+# plus one row per feature suppressed in step 3, grouped by the surviving
+# integrated_id so a feature's full suppression history can be filtered out. ---
 
 
 def make_lineage(integrated, provisional, suppressed) -> pd.DataFrame:
@@ -331,6 +390,8 @@ def make_lineage(integrated, provisional, suppressed) -> pd.DataFrame:
 
 
 def overview(data, city_name: str, path: Path) -> None:
+    # Two-panel summary map: left = which source "won" each footprint (colors
+    # below, no legend rendered on the panel itself), right = best vector height.
     colors = {
         "OpenStreetMap": "#17365D", "Overture_nonOSM": "#5B9BD5",
         "3D-GloBFP_gapfill": "#ED7D31",
@@ -366,8 +427,12 @@ def build(city: str, data_root: Path, force: bool = False) -> None:
     crs = metadata["analysis_crs"]
     aoi = gpd.read_parquet(paths.inputs_dir / "aoi.parquet").to_crs(crs).geometry.union_all()
     segments = gpd.read_parquet(paths.inputs_dir / "segments.parquet").to_crs(crs)
+
+    # Step 1: load + clean both raw sources independently.
     overture = load_overture(paths.city_dir, crs, aoi)
     globfp = load_globfp(paths.city_dir, crs, aoi, metadata["bbox_wgs84"])
+
+    # Step 2: put both sources on a common candidate schema and pool them.
     overture_selected = overture_candidates(overture, city)
     globfp_selected = globfp_candidates(globfp, city)
     provisional = gpd.GeoDataFrame(
@@ -376,17 +441,30 @@ def build(city: str, data_root: Path, force: bool = False) -> None:
     )
     if provisional.empty:
         raise RuntimeError("Neither Overture nor 3D-GloBFP supplied a footprint in the AOI")
+
+    # Step 3: pick one geometry per real-world building (newest wins on conflict).
+    # See footprint_overlap_resolution.resolve_overlaps_by_recency for the algorithm.
     integrated, suppressed = resolve_overlaps_by_recency(
         provisional,
         min_intersection_m2=OVERLAP_TOLERANCE_M2,
         min_smaller_overlap=OVERLAP_SMALLER_FRACTION,
     )
+
+    # Step 4: corroboration signal (does 3D-GloBFP independently agree?).
     supported, support_edges = globfp_support(integrated, globfp)
     integrated["globfp_support"] = supported
+
+    # Step 5: pre-raster height (native > OSM floors > 3D-GloBFP vector).
     attach_globfp_height(integrated, globfp)
     height_attributes(integrated)
+
+    # Step 6: confidence/selection_reason/review_required.
     confidence_attributes(integrated)
+
+    # Reporting-segment assignment (doesn't affect selection or confidence).
     assign_segments(integrated, segments)
+
+    # Step 7: suppression audit trail.
     lineage = make_lineage(integrated, provisional, suppressed)
 
     integrated.to_parquet(parquet_path, index=False)
