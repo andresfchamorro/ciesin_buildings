@@ -81,7 +81,7 @@ def main() -> None:
     enable_logging(data_root / slug / LOG_FILENAME)
 
     prepare = [
-        sys.executable, str(SCRIPTS / "0_prepare_city.py"),
+        sys.executable, str(SCRIPTS / "prepare_city.py"),
         "--city-name", args.city_name, "--country", args.country,
         "--city-slug", slug, "--aoi", str(Path(args.aoi).resolve()),
         "--data-root", str(data_root),
