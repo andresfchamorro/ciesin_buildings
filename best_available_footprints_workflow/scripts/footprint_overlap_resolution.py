@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import shapely
+import geopandas as gpd
 
 
 def resolve_overlaps_by_recency(
@@ -38,7 +39,7 @@ def resolve_overlaps_by_recency(
     order = pd.DataFrame({
         "date": dates, "priority": priority, "integrated_id": ids,
     }).sort_values(
-        ["date", "priority", "integrated_id"],
+        ["priority", "date", "integrated_id"],
         ascending=[False, False, True], na_position="last", kind="stable",
     ).index.to_numpy(dtype="int64")
     position = np.empty(len(data), dtype="int64")

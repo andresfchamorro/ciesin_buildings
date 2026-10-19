@@ -7,4 +7,5 @@ best_available_footprints_workflow/outputs/
 *.vscode
 best_available_footprints_workflow/commands.txt
 best_available_footprints_workflow/scripts/debug.ipynb
+best_available_footprints_workflow/scripts/scratch/
 best_available_footprints_workflow/ciesin_buildings.code-workspace

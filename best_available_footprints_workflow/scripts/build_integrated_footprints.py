@@ -72,7 +72,7 @@ def clean(data: gpd.GeoDataFrame, crs) -> gpd.GeoDataFrame:
         data.loc[invalid, "geometry"] = shapely.make_valid(
             data.loc[invalid, "geometry"].to_numpy()
         )
-    data = data.loc[np.isin(shapely.get_type_id(data.geometry.to_numpy()), [3, 6])]
+    data = data[data.geom_type.isin(["Polygon", "MultiPolygon"])]
     data["area_m2"] = shapely.area(data.geometry.to_numpy())
     return data.loc[data.area_m2 >= MIN_AREA_M2].reset_index(drop=True)
 
@@ -175,9 +175,14 @@ def overture_candidates(data, slug: str) -> gpd.GeoDataFrame:
 
 
 def globfp_candidates(data, slug: str) -> gpd.GeoDataFrame:
-    # 3D-GloBFP always gets the lowest recency_tiebreak_priority (see RECENCY_TIEBREAK),
-    # so in practice it only "wins" a spot where no Overture feature overlaps it
-    # enough to conflict -- i.e. it fills gaps rather than displacing OSM/Overture.
+    # 3D-GloBFP has no per-feature dates, so every footprint is dated 2020-01-01
+    # (its documented model vintage). Conflicts are decided by date first, so a
+    # 3D-GloBFP footprint is kept, and the overlapping Overture/OSM footprint is
+    # dropped, when that Overture footprint's latest update_time is before 2020
+    # or missing. It loses to any Overture footprint updated in 2020 or later.
+    # Its lowest recency_tiebreak_priority only matters for an exact date tie.
+    # It is also kept wherever no Overture footprint overlaps it by >= 20% of
+    # the smaller footprint (pure gap-fill).
     result = gpd.GeoDataFrame({
         "integrated_id": [f"{slug}-GLO-{i:08d}" for i in range(1, len(data) + 1)],
         "geometry_source": "3D-GloBFP_gapfill",
@@ -189,7 +194,9 @@ def globfp_candidates(data, slug: str) -> gpd.GeoDataFrame:
         "source_update_time": None,
         "footprint_update_time": None,
         "source_version": "2020 model",
-        "native_height_m": pd.to_numeric(data.Height, errors="coerce").to_numpy(),
+        # 3D-GloBFP's modelled height is not a native attribute of the geometry; it is
+        # attached as height_globfp_vector_m in attach_globfp_height (priority 3).
+        "native_height_m": np.nan,
         "native_floors": np.nan,
         "area_m2": data.area_m2.to_numpy(),
         "geometry": data.geometry.to_numpy(),
@@ -234,8 +241,9 @@ def globfp_support(integrated, globfp) -> tuple[np.ndarray, pd.DataFrame]:
 
 
 def attach_globfp_height(integrated, globfp) -> None:
-    # Joins each feature's point-on-surface to whichever 3D-GloBFP polygon contains
-    # it (sorted by area so the smallest/most-specific containing polygon wins ties).
+    # Step A: join each feature's point-on-surface to whichever 3D-GloBFP polygon
+    # contains it (sorted by area so the smallest/most-specific containing polygon
+    # wins ties). This is how OSM/Overture footprints get a 3D-GloBFP height.
     integrated["height_globfp_vector_m"] = np.nan
     integrated["globfp_height_id"] = None
     if integrated.empty or globfp.empty:
@@ -252,10 +260,22 @@ def attach_globfp_height(integrated, globfp) -> None:
     integrated.loc[joined.index, "height_globfp_vector_m"] = height
     integrated.loc[joined.index, "globfp_height_id"] = joined.globfp_id
 
+    # Step B: 3D-GloBFP-selected footprints use their own polygon's height.
+    # geometry_source_id holds the globfp_id for these rows, and globfp_id is
+    # unique (load_globfp drops duplicates), so this is a direct lookup.
+    own = integrated.geometry_source.eq("3D-GloBFP_gapfill")
+    if own.any():
+        own_ids = integrated.loc[own, "geometry_source_id"]
+        own_height = own_ids.map(globfp.set_index("globfp_id").Height)
+        integrated.loc[own, "height_globfp_vector_m"] = pd.to_numeric(
+            own_height, errors="coerce"
+        ).to_numpy()
+        integrated.loc[own, "globfp_height_id"] = own_ids.to_numpy()
+
 
 # --- Step 5: pre-raster height. height_best_m takes the first valid value in this
 # priority order: native Overture height, OSM floor count x 3m, 3D-GloBFP vector
-# height. 5_enrich_raster_heights.py later extends this same priority list with
+# height. enrich_raster_heights.py later extends this same priority list with
 # Google 2.5D / GBA.Height / TEMPO and recomputes these fields from scratch. ---
 
 
