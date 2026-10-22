@@ -2,6 +2,7 @@
 best_available_footprints_workflow/.venv/
 best_available_footprints_workflow/data/
 best_available_footprints_workflow/outputs/
+improving_overture/.venv/
 **/__pycache__/
 *.pyc
 *.vscode

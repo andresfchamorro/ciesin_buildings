@@ -51,6 +51,10 @@ class CityPaths:
 
 
 def load_city(slug: str, data_root: Path) -> CityPaths:
+    normalized = slugify(slug)
+    if normalized != slug:
+        print(f"Normalized city slug {slug!r} -> {normalized!r}")
+    slug = normalized
     city_dir = data_root / slug
     metadata_path = city_dir / "inputs/metadata.json"
     if not metadata_path.exists():
